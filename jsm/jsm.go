@@ -34,10 +34,7 @@ func (s *natsStore) Subscribe(topic string, handler jetstreamclient.Subscription
 		return err
 	}
 
-	lb := fmt.Sprintf("%s-%s", s.opts.ServiceName, topic)
-	fmt.Printf("Load Balance Group: %s", lb)
-
-	durableName := strings.ReplaceAll(lb, ".", "-")
+	durableName := strings.ReplaceAll(fmt.Sprintf("%s-%s", s.opts.ServiceName, topic), ".", "-")
 
 	var sub *nats.Subscription
 	errChan := make(chan error)
@@ -86,8 +83,6 @@ func (s *natsStore) Subscribe(topic string, handler jetstreamclient.Subscription
 		}
 	}(so, sub, errChan)
 
-	//defer sub.Drain()
-	//defer cancel()
 	for {
 		select {
 		case <-so.GetContext().Done():
@@ -164,8 +159,8 @@ func Init(opts options.Options, options ...nats.Option) (jetstreamclient.EventSt
 		jsmClient:   js,
 		natsClient:  nc,
 		serviceName: name,
-		subjects:   make([]string, 0),
-		mu:         &sync.RWMutex{},
+		subjects:    make([]string, 0),
+		mu:          &sync.RWMutex{},
 	}, nil
 }
 
