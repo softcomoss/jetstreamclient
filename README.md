@@ -1,57 +1,107 @@
-# axon
- 
-## How to use 
+# Softcom Jetstream EventStore Client - Go
+
+#### How to Publish
 
 ```go
+// Publish
 package main
 
 import (
- "axon"
- "axon/pulse"
- "log"
- "time"
+	"encoding/json"
+	"fmt"
+	"github.com/softcomoss/jetstreamclient/options"
+	jetstream "github.com/softcomoss/jetstreamclient/jsm"
+	"log"
+	"time"
 )
 
 func main() {
-	
-    var topic = "test-topic" // for random topic name.
-    var store, _ = pulse.Init(axon.Options{
-        ServiceName: "test-event-store",
-	    Address: "pulsar://localhost:6650",
-    })
-	
-	if err := store.Publish(topic, []byte("Hello World!")); err != nil {
-		log.Fatalf("Could not publish message to %s", topic)
+	ev, err := jetstream.Init(options.Options{
+		ServiceName: "USERS",
+		Address:     "localhost:4222",
+	})
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	timer := time.AfterFunc(3*time.Second, func() {
-		if err := store.Subscribe(topic, func(event axon.Event) {
-			data := event.Data()
+	start := time.Now()
+	const topic = "test"
 
-			eventTopic := event.Topic()
+	data, err := json.Marshal(struct {
+		FirstName string `json:"first_name"`
+	}{
+		FirstName: "Justice Nefe",
+	})
 
-			if topic != eventTopic {
-				log.Fatalf("Event topic is not the same as subscription topic. Why?: Expected %s, instead got: %s \n", topic, eventTopic)
+	if err != nil {
+		panic(err)
+	}
+
+	if err := ev.Publish(topic, data); err != nil {
+		fmt.Print(err, " Error publishing.\n")
+	}
+
+	end := time.Now()
+
+	diff := end.Sub(start)
+
+	fmt.Printf("Start: %s, End: %s, Diff: %s", start, end, diff)
+}
+
+```
+
+### How to Subscribe
+
+```go
+// Subscribe
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"github.com/softcomoss/jetstreamclient"
+	jetstream "github.com/softcomoss/jetstreamclient/jsm"
+	"github.com/softcomoss/jetstreamclient/options"
+
+	"log"
+	"time"
+)
+
+func main() {
+
+	name := flag.String("name", "", "help message for flagname")
+	flag.Parse()
+
+	ev, err := jetstream.Init(options.Options{
+		ServiceName: *name,
+		Address:     "localhost:4222",
+	})
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	handleSubEv := func() error {
+		const topic = "test"
+		return ev.Subscribe(topic, func(event jetstreamclient.Event) {
+			defer event.Ack()
+			var pl struct {
+				FirstName string `json:"first_name"`
+			}
+			msg, err := event.Parse(&pl)
+			if err != nil {
+				fmt.Print(err, " Err parsing event into pl.")
 				return
 			}
 
-			log.Printf("Received data: %s on topic: %s \n", string(data), eventTopic)
-			event.Ack() // Acknowledge event.
-			return
-		}); err != nil {
-			log.Fatalf("Failed to subscribe to topic: %s, with the following error: %v \n", topic, err)
-			return
-		}
-	})
+			PrettyJson(msg)
 
-	defer timer.Stop()
+		}, options.NewSubscriptionOptions().SetSubscriptionType(options.Shared))
+	}
 
+	// You can use context.WithCancel()
+	ev.Run(context.Background(), handleSubEv)
 }
-```
 
-
-```shell script
-# For tests
-
-$ make test 
 ```
