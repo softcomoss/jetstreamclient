@@ -58,6 +58,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/softcomoss/jetstreamclient"
@@ -89,13 +90,11 @@ func main() {
 			var pl struct {
 				FirstName string `json:"first_name"`
 			}
-			msg, err := event.Parse(&pl)
-			if err != nil {
+			
+			if err := json.Unmarshal(event.Data(), &pl); err != nil {
 				fmt.Print(err, " Err parsing event into pl.")
 				return
 			}
-
-			PrettyJson(msg)
 
 		}, options.NewSubscriptionOptions().SetSubscriptionType(options.Shared))
 	}
