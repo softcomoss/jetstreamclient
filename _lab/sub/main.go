@@ -25,7 +25,8 @@ func main() {
 	ev, err := jetstream.Init(options.Options{
 		//ContentType: "application/json",
 		ServiceName: *name,
-		Address:     "localhost:4222",
+		Address:     "34.206.179.119:4222",
+		AuthenticationToken: "TSdfsdf34o9432ksdkf24525209jc0vvnfn2349cc",
 		//Codecs: codec.De
 	})
 
