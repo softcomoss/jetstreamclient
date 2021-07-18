@@ -1,7 +1,9 @@
 package jetstream
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/nats-io/nats.go"
 	"github.com/pkg/errors"
@@ -25,75 +27,112 @@ type natsStore struct {
 }
 
 func (s *natsStore) Publish(topic string, message []byte) error {
+	s.registerSubjectOnStream(topic)
 	_, err := s.jsmClient.Publish(topic, message)
 	return err
 }
 
 func (s *natsStore) Subscribe(topic string, handler jetstreamclient.SubscriptionHandler, opts ...*options.SubscriptionOptions) error {
-	if err := s.registerSubjectOnStream(topic); err != nil {
-		return err
+	s.registerSubjectOnStream(topic)
+
+	sub := new(nats.Subscription)
+	consumer := new(nats.ConsumerInfo)
+	so := options.MergeSubscriptionOptions(opts...)
+	cbHandler := func(m *nats.Msg) { event := newEvent(m); go handler(event) }
+	var err error
+
+	jsmSubscriptionOptions := make([]nats.SubOpt, 0)
+	jsmSubscriptionOptions = append(jsmSubscriptionOptions,
+		nats.DeliverLast(),
+		nats.EnableFlowControl(),
+		nats.BindStream(s.opts.ServiceName),
+		nats.MaxDeliver(5),
+		nats.ReplayOriginal())
+
+	DurableName := strings.ReplaceAll(fmt.Sprintf("%s-%s", s.opts.ServiceName, topic), ".", "-")
+
+	ConsumerConfig := &nats.ConsumerConfig{
+		Durable:        DurableName,
+		DeliverSubject: nats.NewInbox(),
+		DeliverPolicy:  nats.DeliverLastPolicy,
+		AckPolicy:      nats.AckExplicitPolicy,
+		MaxDeliver:     5,
+		ReplayPolicy:   nats.ReplayOriginalPolicy,
+		MaxAckPending:  20000,
+		FlowControl:    true,
+		//AckWait:         0,
+		//RateLimit:       0,
+		//Heartbeat:       0,
 	}
 
-	durableName := strings.ReplaceAll(fmt.Sprintf("%s-%s", s.opts.ServiceName, topic), ".", "-")
+	//nats.MaxAckPending(20000000)
+	//nats.Durable(durableName)
 
-	var sub *nats.Subscription
-	errChan := make(chan error)
-	so := options.MergeSubscriptionOptions(opts...)
+	//nats.AckNone(),
+	//nats.ManualAck(),
+subTypeShared:
+	switch so.GetSubscriptionType() {
+	case options.Failover:
 
-	go func(so *options.SubscriptionOptions, sub *nats.Subscription, errChan chan<- error) {
-		subType := so.GetSubscriptionType()
-		var err error
-		if subType == options.Shared {
-			sub, err = s.jsmClient.QueueSubscribe(topic, durableName, func(m *nats.Msg) {
-
-				event := newEvent(m)
-				go handler(event)
-			},
-				nats.Durable(durableName),
-				nats.DeliverLast(),
-				nats.EnableFlowControl(),
-				nats.BindStream(s.opts.ServiceName),
-				nats.MaxAckPending(20000000),
-				//nats.AckNone(),
-				nats.ManualAck(),
-				nats.ReplayOriginal(),
-				nats.MaxDeliver(5),
-			)
-		}
-
-		if subType == options.KeyShared {
-			sub, err = s.jsmClient.Subscribe(topic, func(m *nats.Msg) {
-				event := newEvent(m)
-				go handler(event)
-			},
-				nats.Durable(durableName),
-				nats.DeliverLast(),
-				nats.EnableFlowControl(),
-				nats.BindStream(s.opts.ServiceName),
-				//nats.AckExplicit(),
-				nats.ManualAck(),
-				nats.ReplayOriginal(),
-				nats.MaxAckPending(20000000),
-				nats.MaxDeliver(5))
-
-		}
-
-		if err != nil {
-			errChan <- err
-		}
-	}(so, sub, errChan)
-
-	for {
-		select {
-		case <-so.GetContext().Done():
-			err := sub.Drain()
-			if err != nil {
-				errChan <- err
-			}
-			return nil
-		case err := <-errChan:
+		break
+	case options.Exclusive:
+		ConsumerConfig.Durable = DurableName
+		jsmSubscriptionOptions = append(jsmSubscriptionOptions, nats.Durable(DurableName))
+		if consumer, err = s.mountConsumer(s.opts.ServiceName, ConsumerConfig); err != nil {
 			return err
 		}
+		if sub, err = s.jsmClient.Subscribe(consumer.Name, cbHandler, jsmSubscriptionOptions...); err != nil {
+			return err
+		}
+
+	case options.Shared:
+
+		ConsumerConfig.Durable = fmt.Sprintf("%s-%s", DurableName, jetstreamclient.GenerateRandomString())
+		jsmSubscriptionOptions = append(jsmSubscriptionOptions, nats.ManualAck())
+		//ConsumerConfig.AckPolicy = nats.AckNonePolicy
+		if consumer, err = s.mountConsumer(s.opts.ServiceName, ConsumerConfig); err != nil {
+			return err
+		}
+		if sub, err = s.jsmClient.QueueSubscribe(topic, ConsumerConfig.Durable, cbHandler, jsmSubscriptionOptions...); err != nil {
+			return err
+		}
+
+	case options.KeyShared:
+		ConsumerConfig.Durable = fmt.Sprintf("%s-%s", DurableName, jetstreamclient.GenerateRandomString())
+		jsmSubscriptionOptions = append(jsmSubscriptionOptions, nats.Durable(DurableName))
+		if consumer, err = s.mountConsumer(s.opts.ServiceName, ConsumerConfig); err != nil {
+			return err
+		}
+		if sub, err = s.jsmClient.Subscribe(consumer.Name, cbHandler, jsmSubscriptionOptions...); err != nil {
+			return err
+		}
+	default:
+		log.Print("warning subscription type not set, defaulting to Shared")
+		so.SetSubscriptionType(options.Shared)
+		goto subTypeShared
+	}
+
+	//keySub := func(sub *nats.Subscription, errChan chan<- error) {
+	//	var err error
+	//	,
+	//		//nats.Durable(durableName),
+	//		nats.DeliverLast(),
+	//		nats.EnableFlowControl(),
+	//		nats.BindStream(s.opts.ServiceName),
+	//		//nats.AckExplicit(),
+	//		nats.ManualAck(),
+	//		nats.ReplayOriginal(),
+	//		nats.MaxAckPending(20000000),
+	//		nats.MaxDeliver(5))
+	//
+	//	if err != nil {
+	//		errChan <- err
+	//	}
+	//}
+
+	select {
+	case <-so.GetContext().Done():
+		return sub.Drain()
 	}
 }
 
@@ -172,12 +211,11 @@ func (s *natsStore) Run(ctx context.Context, handlers ...jetstreamclient.EventHa
 	<-ctx.Done()
 }
 
-func (s *natsStore) registerSubjectOnStream(subject string) error {
+func (s *natsStore) registerSubjectOnStream(subject string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, v := range s.subjects {
 		if v == subject {
-			return nil
+			return
 		}
 
 		s.subjects = append(s.subjects, subject)
@@ -187,17 +225,17 @@ func (s *natsStore) registerSubjectOnStream(subject string) error {
 		s.subjects = append(s.subjects, subject)
 	}
 
-	sinfo, err := s.jsmClient.UpdateStream(&nats.StreamConfig{
+	_, _ = s.jsmClient.UpdateStream(&nats.StreamConfig{
 		Name:     s.serviceName,
 		Subjects: s.subjects,
 		NoAck:    false,
 	})
 
-	//fmt.Printf("Stream Config Err: %v \n", err)
-	if err == nil {
-		fmt.Printf("Stream Config: %v \n", sinfo.Config)
-	}
-	return nil // could be nil.
+	s.mu.Unlock()
+}
+
+func (s *natsStore) mountConsumer(stream string, conf *nats.ConsumerConfig) (*nats.ConsumerInfo, error) {
+	return s.jsmClient.AddConsumer(stream, conf)
 }
 
 func initCert(content string) (string, error) {
@@ -214,4 +252,21 @@ func initCert(content string) (string, error) {
 		return "", err
 	}
 	return certPath, nil
+}
+
+const (
+	empty = ""
+	tab   = "\t"
+)
+
+func PrettyJson(data interface{}) {
+	buffer := new(bytes.Buffer)
+	encoder := json.NewEncoder(buffer)
+	encoder.SetIndent(empty, tab)
+
+	err := encoder.Encode(data)
+	if err != nil {
+		return
+	}
+	fmt.Print(buffer.String())
 }

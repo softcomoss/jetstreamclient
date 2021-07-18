@@ -7,21 +7,20 @@ import (
 
 	jetstream "github.com/softcomoss/jetstreamclient/jsm"
 	"log"
-	"sync"
 	"time"
 )
 
 func main() {
 	ev, err := jetstream.Init(options.Options{
-		ServiceName: "USERS",
-		Address:     "localhost:4222",
+		ServiceName:         "sdfdk",
+		Address:             "localhost:4222",
+		AuthenticationToken: "TSdfsdf34o9432ksdkf24525209jc0vvnfn2349cc",
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	start := time.Now()
-	const topic = "test"
+	const topic = "loko"
 
 	data, err := json.Marshal(struct {
 		FirstName string `json:"first_name"`
@@ -33,20 +32,10 @@ func main() {
 		panic(err)
 	}
 
-	wg := &sync.WaitGroup{}
-	for i := 1; i < 20000; i++ {
-		wg.Add(1)
-		go func(wg *sync.WaitGroup) {
-			defer wg.Done()
-			if err := ev.Publish(topic, data); err != nil {
-				fmt.Print(err, " Error publishing.\n")
-			}
-		}(wg)
+	for {
+		if err := ev.Publish(topic, data); err != nil {
+			fmt.Print(err, " Error publishing.\n")
+		}
+		time.Sleep(2 * time.Second)
 	}
-	wg.Wait()
-	end := time.Now()
-
-	diff := end.Sub(start)
-
-	fmt.Printf("Start: %s, End: %s, Diff: %s", start, end, diff)
 }
