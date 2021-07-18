@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type natsStore struct {
@@ -28,7 +29,9 @@ type natsStore struct {
 
 func (s *natsStore) Publish(topic string, message []byte) error {
 	s.registerSubjectOnStream(topic)
-	_, err := s.jsmClient.Publish(topic, message)
+	ak, err := s.jsmClient.Publish(topic, message)
+
+	PrettyJson(ak)
 	return err
 }
 
@@ -44,7 +47,7 @@ func (s *natsStore) Subscribe(topic string, handler jetstreamclient.Subscription
 	jsmSubscriptionOptions := make([]nats.SubOpt, 0)
 	jsmSubscriptionOptions = append(jsmSubscriptionOptions,
 		nats.DeliverLast(),
-		nats.EnableFlowControl(),
+		//nats.EnableFlowControl(),
 		nats.BindStream(s.opts.ServiceName),
 		nats.MaxDeliver(5),
 		nats.ReplayOriginal())
@@ -52,14 +55,13 @@ func (s *natsStore) Subscribe(topic string, handler jetstreamclient.Subscription
 	DurableName := strings.ReplaceAll(fmt.Sprintf("%s-%s", s.opts.ServiceName, topic), ".", "-")
 
 	ConsumerConfig := &nats.ConsumerConfig{
-		Durable:        DurableName,
-		DeliverSubject: nats.NewInbox(),
-		DeliverPolicy:  nats.DeliverLastPolicy,
-		AckPolicy:      nats.AckExplicitPolicy,
-		MaxDeliver:     5,
-		ReplayPolicy:   nats.ReplayOriginalPolicy,
-		MaxAckPending:  20000,
-		FlowControl:    true,
+		//DeliverSubject: nats.NewInbox(),
+		DeliverPolicy: nats.DeliverLastPolicy,
+		AckPolicy:     nats.AckExplicitPolicy,
+		MaxDeliver:    5,
+		ReplayPolicy:  nats.ReplayOriginalPolicy,
+		MaxAckPending: 20000,
+		FlowControl:   true,
 		//AckWait:         0,
 		//RateLimit:       0,
 		//Heartbeat:       0,
@@ -70,7 +72,6 @@ func (s *natsStore) Subscribe(topic string, handler jetstreamclient.Subscription
 
 	//nats.AckNone(),
 	//nats.ManualAck(),
-subTypeShared:
 	switch so.GetSubscriptionType() {
 	case options.Failover:
 
@@ -84,32 +85,50 @@ subTypeShared:
 		if sub, err = s.jsmClient.Subscribe(consumer.Name, cbHandler, jsmSubscriptionOptions...); err != nil {
 			return err
 		}
+		break
 
 	case options.Shared:
+		//jsmSubscriptionOptions = append(jsmSubscriptionOptions,
+		//	nats.ManualAck(),
+		//	nats.AckExplicit(),
+		//	//nats.EnableFlowControl(),
+		//	nats.Durable(DurableName),
+		//)
 
-		ConsumerConfig.Durable = fmt.Sprintf("%s-%s", DurableName, jetstreamclient.GenerateRandomString())
-		jsmSubscriptionOptions = append(jsmSubscriptionOptions, nats.ManualAck())
-		//ConsumerConfig.AckPolicy = nats.AckNonePolicy
-		if consumer, err = s.mountConsumer(s.opts.ServiceName, ConsumerConfig); err != nil {
+		//ConsumerConfig.Durable = fmt.Sprintf("%s-%s", DurableName, jetstreamclient.GenerateRandomString())
+		////ConsumerConfig.AckPolicy = nats.AckNonePolicy
+		////ConsumerConfig.DeliverSubject = nats.NewInbox()
+		////ConsumerConfig.MaxAckPending = 0
+		////ConsumerConfig.AckPolicy = nats.AckNonePolicy
+		//if consumer, err = s.mountConsumer(s.opts.ServiceName, ConsumerConfig); err != nil {
+		//	return err
+		//}
+
+		if sub, err = s.jsmClient.QueueSubscribe(topic, DurableName, cbHandler,
+			nats.Durable(DurableName),
+			nats.DeliverLast(),
+			nats.EnableFlowControl(),
+			nats.BindStream(s.opts.ServiceName),
+			nats.MaxAckPending(20000000),
+			nats.ManualAck(),
+			nats.ReplayOriginal(),
+			nats.MaxDeliver(5)); err != nil {
 			return err
 		}
-		if sub, err = s.jsmClient.QueueSubscribe(topic, ConsumerConfig.Durable, cbHandler, jsmSubscriptionOptions...); err != nil {
-			return err
-		}
 
+		break
 	case options.KeyShared:
-		ConsumerConfig.Durable = fmt.Sprintf("%s-%s", DurableName, jetstreamclient.GenerateRandomString())
-		jsmSubscriptionOptions = append(jsmSubscriptionOptions, nats.Durable(DurableName))
-		if consumer, err = s.mountConsumer(s.opts.ServiceName, ConsumerConfig); err != nil {
+		if sub, err = s.jsmClient.Subscribe(topic, cbHandler,
+			nats.Durable(DurableName),
+			nats.DeliverLast(),
+			nats.EnableFlowControl(),
+			nats.BindStream(s.opts.ServiceName),
+			nats.MaxAckPending(20000000),
+			nats.ManualAck(),
+			nats.ReplayOriginal(),
+			nats.MaxDeliver(5)); err != nil {
 			return err
 		}
-		if sub, err = s.jsmClient.Subscribe(consumer.Name, cbHandler, jsmSubscriptionOptions...); err != nil {
-			return err
-		}
-	default:
-		log.Print("warning subscription type not set, defaulting to Shared")
-		so.SetSubscriptionType(options.Shared)
-		goto subTypeShared
 	}
 
 	//keySub := func(sub *nats.Subscription, errChan chan<- error) {
@@ -132,6 +151,7 @@ subTypeShared:
 
 	select {
 	case <-so.GetContext().Done():
+		fmt.Print("Done draining...")
 		return sub.Drain()
 	}
 }
@@ -165,33 +185,13 @@ func Init(opts options.Options, options ...nats.Option) (jetstreamclient.EventSt
 	//	options = append(options, nats.ClientCert(certPath, ""))
 	//}
 
-	nc, err := nats.Connect(opts.Address, options...)
+	nc, js, err := connect(opts.ServiceName, opts.Address, options)
+
 	if err != nil {
 		return nil, err
 	}
 
-	js, err := nc.JetStream()
-	if err != nil {
-		return nil, err
-	}
-
-	sinfo, err := js.StreamInfo(opts.ServiceName)
-	if err != nil {
-		if err.Error() != "stream not found" {
-			return nil, err
-		}
-
-		if sinfo, err = js.AddStream(&nats.StreamConfig{
-			Name: opts.ServiceName,
-			//Retention: nats.InterestPolicy,
-			//NoAck: true,
-			NoAck: false,
-		}); err != nil {
-			return nil, err
-		}
-	}
-
-	log.Print(sinfo.Config, " Stream Config \n")
+	//log.Print(sinfo.Config, " Stream Config \n")
 
 	return &natsStore{
 		opts:        opts,
@@ -204,6 +204,35 @@ func Init(opts options.Options, options ...nats.Option) (jetstreamclient.EventSt
 }
 
 func (s *natsStore) Run(ctx context.Context, handlers ...jetstreamclient.EventHandler) {
+	s.natsClient.SetDisconnectErrHandler(func(conn *nats.Conn, err error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		fmt.Print("Disconnected", conn)
+
+		nOptions := make([]nats.Option, 0)
+
+		nOptions = append(nOptions, nats.Name(s.opts.ServiceName))
+		if s.opts.AuthenticationToken != "" {
+			nOptions = append(nOptions, nats.Token(s.opts.AuthenticationToken))
+		}
+
+		conn, _, err = connect(s.opts.ServiceName, s.opts.Address, nOptions)
+		if err != nil {
+			log.Printf("failed to reconnect to messaging system with the following error(s): %s retrying in 2seconds...", err)
+			time.Sleep(2 * time.Second)
+			s.Run(ctx, handlers...)
+		}
+		s.natsClient = conn
+		//s.jsmClient =
+	})
+
+	s.natsClient.SetReconnectHandler(func(conn *nats.Conn) {
+		fmt.Print("Reconnecting...")
+		if conn.IsConnected() {
+			fmt.Print("Reconnected!")
+		}
+	})
+
 	for _, handler := range handlers {
 		go handler.Run()
 	}
@@ -213,6 +242,7 @@ func (s *natsStore) Run(ctx context.Context, handlers ...jetstreamclient.EventHa
 
 func (s *natsStore) registerSubjectOnStream(subject string) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, v := range s.subjects {
 		if v == subject {
 			return
@@ -231,7 +261,6 @@ func (s *natsStore) registerSubjectOnStream(subject string) {
 		NoAck:    false,
 	})
 
-	s.mu.Unlock()
 }
 
 func (s *natsStore) mountConsumer(stream string, conf *nats.ConsumerConfig) (*nats.ConsumerInfo, error) {
@@ -269,4 +298,33 @@ func PrettyJson(data interface{}) {
 		return
 	}
 	fmt.Print(buffer.String())
+}
+
+func connect(sn, addr string, options []nats.Option) (*nats.Conn, nats.JetStreamContext, error) {
+	nc, err := nats.Connect(addr, options...)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	js, err := nc.JetStream()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sinfo, err := js.StreamInfo(sn)
+	if err != nil {
+		if err.Error() != "stream not found" {
+			return nil, nil, err
+		}
+
+		if sinfo, err = js.AddStream(&nats.StreamConfig{
+			Name:  sn,
+			NoAck: false,
+		}); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	fmt.Print(sinfo)
+	return nc, js, nil
 }

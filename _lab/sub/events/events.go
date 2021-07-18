@@ -18,9 +18,9 @@ func NewEventHandler(eventStore jetstreamclient.EventStore) *eventHandler {
 
 func (e *eventHandler) Listen() {
 	e.handlers = append(e.handlers,
-		e.handleTransfersDebitAdvice,  // Handles all about debit advices.
-		e.handleTransfersCreditAdvice, // Handles all about credit advices.
-		e.handleKYCUserSelfVerificationUpdate,
+		//e.handleTransfersDebitAdvice,  // Handles all about debit advices.
+		//e.handleTransfersCreditAdvice, // Handles all about credit advices.
+		//e.handleKYCUserSelfVerificationUpdate,
 		e.handleKYCUserBVNVerificationUpdate,
 	)
 

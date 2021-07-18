@@ -3,11 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/softcomoss/jetstreamclient/_lab/sub/events/topics"
 	"github.com/softcomoss/jetstreamclient/options"
 
 	jetstream "github.com/softcomoss/jetstreamclient/jsm"
 	"log"
-	"time"
 )
 
 func main() {
@@ -20,7 +20,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	const topic = "loko"
+	//const topic = "loko"
 
 	data, err := json.Marshal(struct {
 		FirstName string `json:"first_name"`
@@ -32,10 +32,11 @@ func main() {
 		panic(err)
 	}
 
-	for {
-		if err := ev.Publish(topic, data); err != nil {
-			fmt.Print(err, " Error publishing.\n")
-		}
-		time.Sleep(2 * time.Second)
+	for i := 0; i < 10; i++ {
+			fmt.Print("Firing event...\n")
+			if err := ev.Publish(topics.KYCUserBVNVerificationUpdated, data); err != nil {
+				fmt.Print(err, " Error publishing.\n")
+			}
+		//time.Sleep(1 * time.Second)
 	}
 }
