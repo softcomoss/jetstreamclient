@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/softcomoss/jetstreamclient"
+	"github.com/softcomoss/jetstreamclient/_lab/sub/events"
 	jetstream "github.com/softcomoss/jetstreamclient/jsm"
 	"github.com/softcomoss/jetstreamclient/options"
 
@@ -28,12 +28,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = ev.Subscribe("loko", func(event jetstreamclient.Event) {
-		fmt.Print(string(event.Data()), " Event data")
-		event.Ack()
-	})
+
 
 	fmt.Print(err, " Err Stream")
 
-	//events.NewEventHandler(ev).Listen()
+	events.NewEventHandler(ev).Listen()
 }
