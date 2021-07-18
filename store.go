@@ -26,15 +26,11 @@ type EventStore interface {
 	Run(ctx context.Context, handlers ...EventHandler)
 }
 
-
-
 func (f EventHandler) Run() {
-	for {
-		err := f()
-		if err != nil {
-			log.Printf("creating a consumer returned error: %v. Reconnecting in 3secs...", err)
-			time.Sleep(3 * time.Second)
-			continue
-		}
+caller:
+	if err := f(); err != nil {
+		log.Printf("creating a consumer returned error: %v. Reconnecting in 3secs...", err)
+		time.Sleep(3 * time.Second)
+		goto caller
 	}
 }
