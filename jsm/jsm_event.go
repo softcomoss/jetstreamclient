@@ -5,24 +5,8 @@ import (
 	"github.com/softcomoss/jetstreamclient"
 )
 
-type stanEvent struct {
-	m *nats.Msg
-}
-
-func (s stanEvent) Ack() {
-	_ = s.m.Ack()
-}
-
-func (s stanEvent) Data() []byte {
-	return s.m.Data
-}
-
-func (s stanEvent) Topic() string {
-	return s.m.Subject
-}
-
 func newEvent(msg *nats.Msg) jetstreamclient.Event {
-	return &stanEvent{
+	return &natsEvent{
 		m: msg,
 	}
 }
@@ -32,7 +16,7 @@ type natsEvent struct {
 }
 
 func (n natsEvent) Ack() {
-	return
+	_ = n.m.Ack()
 }
 
 func (n natsEvent) Data() []byte {
@@ -41,10 +25,4 @@ func (n natsEvent) Data() []byte {
 
 func (n natsEvent) Topic() string {
 	return n.m.Subject
-}
-
-func newNatsEvent(msg *nats.Msg) jetstreamclient.Event {
-	return &natsEvent{
-		m: msg,
-	}
 }

@@ -29,7 +29,7 @@ type EventStore interface {
 func (f EventHandler) Run() {
 caller:
 	if err := f(); err != nil {
-		log.Printf("creating a consumer returned error: %v. Reconnecting in 3secs...", err)
+		log.Printf("creating a consumer returned error: %v", err)
 		time.Sleep(3 * time.Second)
 		goto caller
 	}

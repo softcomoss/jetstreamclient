@@ -21,7 +21,7 @@ func (e eventHandler) handleTransfersDebitAdvice() error {
 
 func (e eventHandler) handleTransfersCreditAdvice() error {
 	opts := options.NewSubscriptionOptions()
-	opts.SetSubscriptionType(options.Shared)
+	opts.SetSubscriptionType(options.KeyShared)
 
 	return e.eventStore.Subscribe(topics.TransferCreditAdvice, func(event jetstreamclient.Event) {
 		log.Printf("incoming payload(shared): %s \n", string(event.Data()))
@@ -42,10 +42,10 @@ func (e eventHandler) handleKYCUserSelfVerificationUpdate() error {
 
 func (e eventHandler) handleKYCUserBVNVerificationUpdate() error {
 	opts := options.NewSubscriptionOptions()
-	opts.SetSubscriptionType(options.KeyShared)
+	opts.SetSubscriptionType(options.Shared)
 
 	return e.eventStore.Subscribe(topics.KYCUserBVNVerificationUpdated, func(event jetstreamclient.Event) {
-		log.Printf("incoming payload(KeyShared): %s \n", string(event.Data()))
+		log.Printf("incoming payload(Shared 2): %s \n", string(event.Data()))
 		defer event.Ack()
 	}, opts)
 }
