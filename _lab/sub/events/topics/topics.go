@@ -1,6 +1,5 @@
 package topics
 
-
 const (
 	TransferDebitAdvice  = "com.eyowo.transfers.debit.advice"
 	TransferCreditAdvice = "com.eyowo.transfers.credit.advice"

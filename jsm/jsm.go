@@ -13,13 +13,6 @@ import (
 	"time"
 )
 
-func (s *natsStore) Publish(topic string, message []byte) error {
-	ak, err := s.jsmClient.Publish(topic, message)
-
-	PrettyJson(ak)
-	return err
-}
-
 func (s *natsStore) GetServiceName() string {
 	return s.serviceName
 }
@@ -48,12 +41,14 @@ func Init(opts options.Options, options ...nats.Option) (jetstreamclient.EventSt
 	}
 
 	return &natsStore{
-		opts:          opts,
-		jsmClient:     js,
-		natsClient:    nc,
-		serviceName:   name,
-		subscriptions: make(map[string]*subscription),
-		mu:            &sync.RWMutex{},
+		opts:               opts,
+		jsmClient:          js,
+		natsClient:         nc,
+		serviceName:        name,
+		subscriptions:      make(map[string]*subscription),
+		publishTopics:      make(map[string]string),
+		knownSubjectsCount: 0,
+		mu:                 &sync.RWMutex{},
 	}, nil
 }
 
@@ -81,7 +76,17 @@ func (s *natsStore) registerSubjectsOnStream() {
 		subjects = append(subjects, v.topic)
 	}
 
-	subjects = append(subjects, fmt.Sprintf("%s.*", s.opts.ServiceName))
+	for _, topic := range s.publishTopics {
+		subjects = append(subjects, topic)
+	}
+
+	subjects = append(subjects, s.opts.ServiceName)
+	// Do not bother altering the stream state if the values are the same.
+	if len(subjects) == s.knownSubjectsCount {
+		return
+	}
+
+	s.knownSubjectsCount = len(subjects)
 
 	if _, err := s.jsmClient.UpdateStream(&nats.StreamConfig{
 		Name:     s.opts.ServiceName,
@@ -142,7 +147,7 @@ func connect(sn, addr string, options []nats.Option) (*nats.Conn, nats.JetStream
 
 		if sinfo, err = js.AddStream(&nats.StreamConfig{
 			Name:     sn,
-			Subjects: []string{fmt.Sprintf("%s.*", sn)},
+			Subjects: []string{sn},
 			NoAck:    false,
 		}); err != nil {
 			return nil, nil, err

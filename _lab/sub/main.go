@@ -29,7 +29,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-
 	fmt.Print(err, " Err Stream")
 
 	events.NewEventHandler(ev).Listen()

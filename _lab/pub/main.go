@@ -33,10 +33,10 @@ func main() {
 	}
 
 	for i := 0; i < 10; i++ {
-			fmt.Print("Firing event...\n")
-			if err := ev.Publish(topics.TransferCreditAdvice, data); err != nil {
-				fmt.Print(err, " Error publishing.\n")
-			}
+		fmt.Print("Firing event...\n")
+		if err := ev.Publish(topics.TransferCreditAdvice, data); err != nil {
+			fmt.Print(err, " Error publishing.\n")
+		}
 		//time.Sleep(1 * time.Second)
 	}
 }

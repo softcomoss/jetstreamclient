@@ -20,12 +20,14 @@ type subscription struct {
 }
 
 type natsStore struct {
-	opts          options.Options
-	natsClient    *nats.Conn
-	jsmClient     nats.JetStreamContext
-	mu            *sync.RWMutex
-	subscriptions map[string]*subscription
-	serviceName   string
+	opts               options.Options
+	natsClient         *nats.Conn
+	jsmClient          nats.JetStreamContext
+	mu                 *sync.RWMutex
+	subscriptions      map[string]*subscription
+	publishTopics      map[string]string
+	knownSubjectsCount int
+	serviceName        string
 }
 
 func (s *subscription) mountSubscription() error {

@@ -8,7 +8,6 @@ import (
 	"github.com/softcomoss/jetstreamclient"
 )
 
-
 func (e eventHandler) handleTransfersDebitAdvice() error {
 	opts := options.NewSubscriptionOptions()
 	opts.SetSubscriptionType(options.Exclusive)
