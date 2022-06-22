@@ -86,7 +86,6 @@ func (s *subscription) mountSubscription() error {
 			cbHandler,
 			nats.Durable(durableStore),
 			nats.DeliverLast(),
-			nats.EnableFlowControl(),
 			nats.BindStream(s.serviceName),
 			nats.MaxAckPending(20000000),
 			nats.ManualAck(),
